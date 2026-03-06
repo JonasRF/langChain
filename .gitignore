@@ -1,0 +1,3 @@
+# Ocultando variaveis de ambiente
+.env
+.env.*
