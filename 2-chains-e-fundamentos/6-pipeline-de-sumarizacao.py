@@ -1,7 +1,10 @@
 from langchain_openai import ChatOpenAI
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.prompts import PromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnableLambda
 from dotenv import load_dotenv
+
 load_dotenv()
 
 long_text ="""Jenna is a professional cook and today is her first day in a new restaurant. 
@@ -13,16 +16,25 @@ she grabs some coffee and a sandwich from the coffee shop down the road and gets
 of the restaurant. Time is running out and she is getting more and more anxious. 
 When the doors open to the metro station, she starts running. Happily, she arrives right on time for her first day."""
 
-splitter = RecursiveCharacterTextSplitter(chunk_size=250, chunk_overlap=70)
+spliter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
 
-parts = splitter.create_documents([long_text])
+parts = spliter.create_documents([long_text])
 
 llm = ChatOpenAI(model="gpt-5-nano", temperature=0)
 
-prompt = PromptTemplate.from_template("Summarize the following text:\n\n{text}")
+# LCEL map stage: summarize each chunk
+map_prompt = PromptTemplate.from_template("Write a concise summary of the following text:\n{text}")
+map_chain = map_prompt | llm | StrOutputParser()
 
-chain = prompt | llm
+prepare_map_inputs = RunnableLambda(lambda docs: [{"text": d.page_content} for d in docs])
+map_stage = prepare_map_inputs | map_chain.map()
 
-for part in parts:
-    result = chain.invoke({"text": part.page_content})
-    print(result.content)
+# LCEL reduce stage: combine summaries into one final summary
+reduce_prompt = PromptTemplate.from_template("Combine the following summaries into a single concise summary:\n{text}")
+reduce_chain = reduce_prompt | llm | StrOutputParser()
+
+prepare_reduce_input = RunnableLambda(lambda summaries: {"text": "\n".join(summaries)})
+pipeline = map_stage | prepare_reduce_input | reduce_chain
+
+result = pipeline.invoke(parts)
+print(result)
